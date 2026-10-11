@@ -1,0 +1,951 @@
+{
+  "manifest_version": 1,
+  "type": "device",
+  "name": "TransLink Vancouver",
+  "description": {
+    "en": "Next TransLink departures, SkyTrain line status and Mobi bike stations in Metro Vancouver.",
+    "fr": "Prochains passages TransLink, état du SkyTrain et stations de vélos Mobi à Vancouver."
+  },
+  "version": "0.0.0",
+  "docker_image": "ghcr.io/lm1lc3n7/gladys-translink:0.0.0",
+  "gladys_version": ">=5.1.0",
+  "cover_image": "https://raw.githubusercontent.com/LM1LC3N7/gladys-translink/main/cover.png",
+  "categories": ["services"],
+  "transports": ["cloud"],
+  "location": true,
+  "config_schema": [
+    {
+      "key": "intro",
+      "type": "section",
+      "label": {
+        "en": "Get started in 2 minutes",
+        "fr": "Démarrer en 2 minutes"
+      },
+      "description": {
+        "en": "1. Check that your house has an address in Gladys (Settings → Houses). 2. Save this page. 3. Open the “Discover” tab of this integration and press “Add” on the stops and Mobi stations near your home. That's it: you get the next departures and the Mobi bikes right away. A TransLink key (optional, free) adds the official real time and the line status.",
+        "fr": "1. Vérifiez que votre maison a une adresse dans Gladys (Paramètres → Maisons). 2. Enregistrez cette page. 3. Ouvrez l’onglet « Découverte » de cette intégration et cliquez sur « Ajouter » sur les arrêts et stations Mobi près de chez vous. C’est tout : vous avez tout de suite les prochains passages et les vélos Mobi. Une clé TransLink (facultative, gratuite) ajoute le temps réel officiel et l’état des lignes."
+      },
+      "links": [
+        {
+          "url": "https://github.com/LM1LC3N7/gladys-translink/blob/main/docs/fr.md",
+          "label": {
+            "en": "Step-by-step guide",
+            "fr": "Guide pas à pas"
+          }
+        },
+        {
+          "url": "https://transitous.org/sources/",
+          "label": {
+            "en": "Timetable data (Transitous)",
+            "fr": "Données des horaires (Transitous)"
+          }
+        }
+      ]
+    },
+    {
+      "key": "nearby",
+      "type": "section",
+      "label": {
+        "en": "Near my home",
+        "fr": "Près de chez moi"
+      },
+      "description": {
+        "en": "How many of the closest stops (within 600 m) and Mobi stations (within 1 km) are proposed in the “Discover” tab. 0 turns the suggestion off.",
+        "fr": "Combien d’arrêts (à moins de 600 m) et de stations Mobi (à moins de 1 km) parmi les plus proches sont proposés dans l’onglet « Découverte ». 0 désactive la suggestion."
+      }
+    },
+    {
+      "key": "nearby_stops",
+      "type": "number",
+      "label": {
+        "en": "Stops near my home",
+        "fr": "Arrêts près de chez moi"
+      },
+      "required": false,
+      "default": 3,
+      "min": 0,
+      "max": 8
+    },
+    {
+      "key": "nearby_bike_stations",
+      "type": "number",
+      "label": {
+        "en": "Mobi stations near my home",
+        "fr": "Stations Mobi près de chez moi"
+      },
+      "required": false,
+      "default": 2,
+      "min": 0,
+      "max": 8
+    },
+    {
+      "key": "account",
+      "type": "section",
+      "label": {
+        "en": "Real time and lines (optional)",
+        "fr": "Temps réel et lignes (facultatif)"
+      },
+      "description": {
+        "en": "Without a key you get the departures of the free Transitous service: the timetable, and the real time where Transitous has it. With a free TransLink key you get the official real-time predictions and the status of the SkyTrain lines. Getting one takes 5 minutes: follow the step-by-step guide.",
+        "fr": "Sans clé, vous avez les passages du service gratuit Transitous : les horaires prévus, et le temps réel quand Transitous l’a. Avec une clé TransLink gratuite, vous avez les prédictions officielles en temps réel et l’état des lignes du SkyTrain. L’obtenir prend 5 minutes : suivez le guide pas à pas."
+      },
+      "links": [
+        {
+          "url": "https://github.com/LM1LC3N7/gladys-translink/blob/main/docs/fr.md#obtenir-la-clé-dapi-translink-5-minutes",
+          "label": {
+            "en": "How to get the key",
+            "fr": "Comment obtenir la clé"
+          }
+        },
+        {
+          "url": "https://developer.translink.ca",
+          "label": {
+            "en": "TransLink developer portal",
+            "fr": "Portail développeurs TransLink"
+          }
+        }
+      ]
+    },
+    {
+      "key": "api_key",
+      "type": "secret",
+      "label": {
+        "en": "TransLink API key",
+        "fr": "Clé d'API TransLink"
+      },
+      "description": {
+        "en": "The API key of your account on the TransLink developer portal.",
+        "fr": "La clé d'API de votre compte sur le portail développeurs de TransLink."
+      },
+      "required": false
+    },
+    {
+      "key": "watch_lines",
+      "type": "boolean",
+      "label": {
+        "en": "Watch the lines",
+        "fr": "Surveiller les lignes"
+      },
+      "description": {
+        "en": "Creates a \"TransLink – SkyTrain and SeaBus\" device with the status of the Expo, Millennium and Canada lines, the SeaBus and the West Coast Express.",
+        "fr": "Crée un appareil « TransLink – SkyTrain et SeaBus » avec l'état des lignes Expo, Millennium et Canada, du SeaBus et du West Coast Express."
+      },
+      "required": false,
+      "default": true
+    },
+    {
+      "key": "schedule_without_key",
+      "type": "boolean",
+      "label": {
+        "en": "Departures without a key",
+        "fr": "Passages sans clé"
+      },
+      "description": {
+        "en": "Without a key, show the departures of the free Transitous service.",
+        "fr": "Sans clé, afficher les passages du service gratuit Transitous."
+      },
+      "required": false,
+      "default": true
+    },
+    {
+      "key": "watch",
+      "type": "section",
+      "label": {
+        "en": "Other stops and stations (optional)",
+        "fr": "Autres arrêts et stations (facultatif)"
+      },
+      "description": {
+        "en": "To watch a stop that is not near your home (work, school…): type its number, written on the stop sign, or find it with the “Find a stop” button at the bottom of this page.",
+        "fr": "Pour surveiller un arrêt qui n’est pas près de chez vous (travail, école…) : tapez son numéro, inscrit sur le panneau de l’arrêt, ou trouvez-le avec le bouton « Chercher un arrêt » en bas de cette page."
+      }
+    },
+    {
+      "key": "stops",
+      "type": "string",
+      "label": {
+        "en": "Stops",
+        "fr": "Arrêts"
+      },
+      "description": {
+        "en": "Stop numbers. Optional route filter after @ and custom name after : — e.g. \"50040, 61935@99:Bus to work\".",
+        "fr": "Numéros d'arrêt. Filtre de lignes optionnel après @ et nom personnalisé après : — ex. « 50040, 61935@99:Bus du travail »."
+      },
+      "required": false,
+      "placeholder": {
+        "en": "50040, 61935@99:Bus to work",
+        "fr": "50040, 61935@99:Bus du travail"
+      }
+    },
+    {
+      "key": "bike_stations",
+      "type": "string",
+      "label": {
+        "en": "Mobi stations",
+        "fr": "Stations Mobi"
+      },
+      "description": {
+        "en": "Mobi station ids, with an optional custom name after : — e.g. \"0201:Station at home\".",
+        "fr": "Identifiants de stations Mobi, avec un nom personnalisé optionnel après : — ex. « 0201:Station de la maison »."
+      },
+      "required": false,
+      "placeholder": {
+        "en": "0201:Station at home",
+        "fr": "0201:Station de la maison"
+      }
+    },
+    {
+      "key": "refresh",
+      "type": "section",
+      "label": {
+        "en": "Advanced",
+        "fr": "Avancé"
+      },
+      "description": {
+        "en": "The defaults suit almost everyone. With a TransLink key, one read of the real-time feed serves every stop.",
+        "fr": "Les valeurs par défaut conviennent à presque tout le monde. Avec une clé TransLink, une seule lecture du flux temps réel sert tous les arrêts."
+      }
+    },
+    {
+      "key": "departures_poll_frequency",
+      "type": "number",
+      "label": {
+        "en": "Departures refresh interval (s)",
+        "fr": "Rafraîchissement des passages (s)"
+      },
+      "description": {
+        "en": "How often the departures are refreshed, in seconds.",
+        "fr": "Fréquence de rafraîchissement des passages, en secondes."
+      },
+      "required": false,
+      "default": 60,
+      "min": 30,
+      "max": 3600
+    },
+    {
+      "key": "lines_poll_frequency",
+      "type": "number",
+      "label": {
+        "en": "Lines refresh interval (s)",
+        "fr": "Rafraîchissement des lignes (s)"
+      },
+      "description": {
+        "en": "How often the line status is refreshed, in seconds.",
+        "fr": "Fréquence de rafraîchissement de l'état des lignes, en secondes."
+      },
+      "required": false,
+      "default": 120,
+      "min": 30,
+      "max": 3600
+    },
+    {
+      "key": "bike_poll_frequency",
+      "type": "number",
+      "label": {
+        "en": "Mobi refresh interval (s)",
+        "fr": "Rafraîchissement Mobi (s)"
+      },
+      "description": {
+        "en": "How often the Mobi stations are refreshed, in seconds.",
+        "fr": "Fréquence de rafraîchissement des stations Mobi, en secondes."
+      },
+      "required": false,
+      "default": 120,
+      "min": 30,
+      "max": 3600
+    },
+    {
+      "key": "max_departures",
+      "type": "number",
+      "label": {
+        "en": "Departures per stop",
+        "fr": "Passages par arrêt"
+      },
+      "description": {
+        "en": "How many upcoming departures each stop device exposes as features.",
+        "fr": "Nombre de prochains passages exposés en fonctionnalités par arrêt."
+      },
+      "required": false,
+      "default": 3,
+      "min": 1,
+      "max": 5
+    },
+    {
+      "key": "language",
+      "type": "select",
+      "label": {
+        "en": "Language of the values",
+        "fr": "Langue des valeurs"
+      },
+      "description": {
+        "en": "Language of the feature names and of the texts published.",
+        "fr": "Langue des noms de fonctionnalités et des textes publiés."
+      },
+      "required": false,
+      "default": "en",
+      "options": [
+        {
+          "value": "fr",
+          "label": {
+            "en": "French",
+            "fr": "Français"
+          }
+        },
+        {
+          "value": "en",
+          "label": {
+            "en": "English",
+            "fr": "Anglais"
+          }
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "key": "test_api_key",
+      "label": {
+        "en": "Test the TransLink API key",
+        "fr": "Tester la clé d'API TransLink"
+      },
+      "timeout_seconds": 30
+    },
+    {
+      "key": "search_stops",
+      "label": {
+        "en": "Find a stop",
+        "fr": "Chercher un arrêt"
+      },
+      "timeout_seconds": 60,
+      "fields": [
+        {
+          "key": "query",
+          "type": "string",
+          "label": {
+            "en": "Street, stop name or number",
+            "fr": "Rue, nom ou numéro de l’arrêt"
+          },
+          "placeholder": {
+            "en": "Granville Station",
+            "fr": "Granville Station"
+          },
+          "required": true
+        }
+      ]
+    },
+    {
+      "key": "search_bike_stations",
+      "label": {
+        "en": "Find a Mobi station",
+        "fr": "Chercher une station Mobi"
+      },
+      "timeout_seconds": 30,
+      "fields": [
+        {
+          "key": "query",
+          "type": "string",
+          "label": {
+            "en": "Station name",
+            "fr": "Nom de la station"
+          },
+          "placeholder": {
+            "en": "Rogers Tower",
+            "fr": "Rogers Tower"
+          },
+          "required": true
+        }
+      ]
+    }
+  ],
+  "scene_triggers": [
+    {
+      "key": "departure_approaching",
+      "label": {
+        "en": "Departure approaching",
+        "fr": "Passage imminent"
+      },
+      "description": {
+        "en": "A departure of a watched stop is now less than the chosen number of minutes away.",
+        "fr": "Un passage d'un arrêt surveillé a lieu désormais dans moins du nombre de minutes choisi."
+      },
+      "fields": [
+        {
+          "key": "stop",
+          "type": "select",
+          "source": "devices",
+          "label": {
+            "en": "Stop",
+            "fr": "Arrêt"
+          },
+          "required": true
+        },
+        {
+          "key": "threshold",
+          "type": "select",
+          "label": {
+            "en": "Minutes before departure",
+            "fr": "Minutes avant le passage"
+          },
+          "required": true,
+          "options": [
+            {
+              "value": "1",
+              "label": {
+                "en": "1 minute",
+                "fr": "1 minute"
+              }
+            },
+            {
+              "value": "2",
+              "label": {
+                "en": "2 minutes",
+                "fr": "2 minutes"
+              }
+            },
+            {
+              "value": "3",
+              "label": {
+                "en": "3 minutes",
+                "fr": "3 minutes"
+              }
+            },
+            {
+              "value": "5",
+              "label": {
+                "en": "5 minutes",
+                "fr": "5 minutes"
+              }
+            },
+            {
+              "value": "10",
+              "label": {
+                "en": "10 minutes",
+                "fr": "10 minutes"
+              }
+            },
+            {
+              "value": "15",
+              "label": {
+                "en": "15 minutes",
+                "fr": "15 minutes"
+              }
+            }
+          ]
+        },
+        {
+          "key": "route",
+          "type": "string",
+          "label": {
+            "en": "Route (empty: any)",
+            "fr": "Ligne (vide : toutes)"
+          },
+          "placeholder": {
+            "en": "99",
+            "fr": "99"
+          }
+        }
+      ],
+      "variables": [
+        {
+          "key": "stop_name",
+          "type": "string",
+          "label": {
+            "en": "Stop",
+            "fr": "Arrêt"
+          }
+        },
+        {
+          "key": "route",
+          "type": "string",
+          "label": {
+            "en": "Route",
+            "fr": "Ligne"
+          }
+        },
+        {
+          "key": "minutes",
+          "type": "number",
+          "label": {
+            "en": "Minutes to wait",
+            "fr": "Minutes d'attente"
+          }
+        }
+      ]
+    },
+    {
+      "key": "line_status_changed",
+      "label": {
+        "en": "Line status changed",
+        "fr": "État d'une ligne modifié"
+      },
+      "description": {
+        "en": "A line was disrupted, got back to normal, or received a service notice.",
+        "fr": "Une ligne a été perturbée, est revenue à la normale ou a reçu un avis de service."
+      },
+      "fields": [
+        {
+          "key": "line",
+          "type": "multi_select",
+          "label": {
+            "en": "Lines",
+            "fr": "Lignes"
+          },
+          "options": [
+            {
+              "value": "expo",
+              "label": {
+                "en": "Expo Line",
+                "fr": "Ligne Expo"
+              }
+            },
+            {
+              "value": "millennium",
+              "label": {
+                "en": "Millennium Line",
+                "fr": "Ligne Millennium"
+              }
+            },
+            {
+              "value": "canada",
+              "label": {
+                "en": "Canada Line",
+                "fr": "Ligne Canada"
+              }
+            },
+            {
+              "value": "seabus",
+              "label": {
+                "en": "SeaBus",
+                "fr": "SeaBus"
+              }
+            },
+            {
+              "value": "wce",
+              "label": {
+                "en": "West Coast Express",
+                "fr": "West Coast Express"
+              }
+            }
+          ]
+        },
+        {
+          "key": "event",
+          "type": "multi_select",
+          "label": {
+            "en": "Events",
+            "fr": "Événements"
+          },
+          "options": [
+            {
+              "value": "disrupted",
+              "label": {
+                "en": "Disrupted",
+                "fr": "Perturbée"
+              }
+            },
+            {
+              "value": "restored",
+              "label": {
+                "en": "Back to normal",
+                "fr": "Retour à la normale"
+              }
+            },
+            {
+              "value": "notice",
+              "label": {
+                "en": "Service notice",
+                "fr": "Avis de service"
+              }
+            }
+          ]
+        }
+      ],
+      "variables": [
+        {
+          "key": "line_name",
+          "type": "string",
+          "label": {
+            "en": "Line",
+            "fr": "Ligne"
+          }
+        },
+        {
+          "key": "event",
+          "type": "string",
+          "label": {
+            "en": "Event",
+            "fr": "Événement"
+          }
+        },
+        {
+          "key": "message",
+          "type": "string",
+          "label": {
+            "en": "TransLink message",
+            "fr": "Message TransLink"
+          }
+        }
+      ]
+    },
+    {
+      "key": "bike_station_changed",
+      "label": {
+        "en": "Mobi station changed",
+        "fr": "Station Mobi modifiée"
+      },
+      "description": {
+        "en": "A watched Mobi station ran out of bikes or docks, got some back, or changed service.",
+        "fr": "Une station Mobi surveillée n'a plus de vélos ou de places, en retrouve, ou change de service."
+      },
+      "fields": [
+        {
+          "key": "station",
+          "type": "select",
+          "source": "devices",
+          "label": {
+            "en": "Mobi station",
+            "fr": "Station Mobi"
+          },
+          "required": true
+        },
+        {
+          "key": "event",
+          "type": "multi_select",
+          "label": {
+            "en": "Events",
+            "fr": "Événements"
+          },
+          "options": [
+            {
+              "value": "no_bike",
+              "label": {
+                "en": "No bike left",
+                "fr": "Plus aucun vélo"
+              }
+            },
+            {
+              "value": "bikes_back",
+              "label": {
+                "en": "Bikes back",
+                "fr": "Vélos de retour"
+              }
+            },
+            {
+              "value": "no_dock",
+              "label": {
+                "en": "No free dock",
+                "fr": "Plus aucune place"
+              }
+            },
+            {
+              "value": "docks_back",
+              "label": {
+                "en": "Docks back",
+                "fr": "Places de retour"
+              }
+            },
+            {
+              "value": "out_of_service",
+              "label": {
+                "en": "Out of service",
+                "fr": "Hors service"
+              }
+            },
+            {
+              "value": "back_in_service",
+              "label": {
+                "en": "Back in service",
+                "fr": "Remise en service"
+              }
+            }
+          ]
+        }
+      ],
+      "variables": [
+        {
+          "key": "station_name",
+          "type": "string",
+          "label": {
+            "en": "Station",
+            "fr": "Station"
+          }
+        },
+        {
+          "key": "event",
+          "type": "string",
+          "label": {
+            "en": "Event",
+            "fr": "Événement"
+          }
+        },
+        {
+          "key": "bikes",
+          "type": "number",
+          "label": {
+            "en": "Bikes",
+            "fr": "Vélos"
+          }
+        },
+        {
+          "key": "electric_bikes",
+          "type": "number",
+          "label": {
+            "en": "Electric bikes",
+            "fr": "Vélos électriques"
+          }
+        },
+        {
+          "key": "docks",
+          "type": "number",
+          "label": {
+            "en": "Free docks",
+            "fr": "Places libres"
+          }
+        }
+      ]
+    }
+  ],
+  "scene_actions": [
+    {
+      "key": "get_next_departures",
+      "label": {
+        "en": "Read the next departures",
+        "fr": "Lire les prochains passages"
+      },
+      "description": {
+        "en": "Reads the next departures of a watched stop, now.",
+        "fr": "Lit maintenant les prochains passages d'un arrêt surveillé."
+      },
+      "timeout_seconds": 30,
+      "fields": [
+        {
+          "key": "stop",
+          "type": "select",
+          "source": "devices",
+          "label": {
+            "en": "Stop",
+            "fr": "Arrêt"
+          },
+          "required": true
+        },
+        {
+          "key": "route",
+          "type": "string",
+          "label": {
+            "en": "Route (empty: any)",
+            "fr": "Ligne (vide : toutes)"
+          },
+          "placeholder": {
+            "en": "99",
+            "fr": "99"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "key": "route",
+          "type": "string",
+          "label": {
+            "en": "Route",
+            "fr": "Ligne"
+          }
+        },
+        {
+          "key": "minutes",
+          "type": "number",
+          "label": {
+            "en": "Minutes to wait",
+            "fr": "Minutes d'attente"
+          }
+        },
+        {
+          "key": "following_minutes",
+          "type": "number",
+          "label": {
+            "en": "Minutes to the following one",
+            "fr": "Minutes jusqu'au suivant"
+          }
+        },
+        {
+          "key": "summary",
+          "type": "string",
+          "label": {
+            "en": "Departure board",
+            "fr": "Tableau des passages"
+          }
+        },
+        {
+          "key": "count",
+          "type": "number",
+          "label": {
+            "en": "Upcoming departures",
+            "fr": "Passages à venir"
+          }
+        }
+      ]
+    },
+    {
+      "key": "get_line_status",
+      "label": {
+        "en": "Read a line status",
+        "fr": "Lire l'état d'une ligne"
+      },
+      "description": {
+        "en": "Reads the current status of one line, now.",
+        "fr": "Lit maintenant l'état actuel d'une ligne."
+      },
+      "timeout_seconds": 30,
+      "fields": [
+        {
+          "key": "line",
+          "type": "select",
+          "label": {
+            "en": "Line",
+            "fr": "Ligne"
+          },
+          "required": true,
+          "options": [
+            {
+              "value": "expo",
+              "label": {
+                "en": "Expo Line",
+                "fr": "Ligne Expo"
+              }
+            },
+            {
+              "value": "millennium",
+              "label": {
+                "en": "Millennium Line",
+                "fr": "Ligne Millennium"
+              }
+            },
+            {
+              "value": "canada",
+              "label": {
+                "en": "Canada Line",
+                "fr": "Ligne Canada"
+              }
+            },
+            {
+              "value": "seabus",
+              "label": {
+                "en": "SeaBus",
+                "fr": "SeaBus"
+              }
+            },
+            {
+              "value": "wce",
+              "label": {
+                "en": "West Coast Express",
+                "fr": "West Coast Express"
+              }
+            }
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "key": "line_name",
+          "type": "string",
+          "label": {
+            "en": "Line",
+            "fr": "Ligne"
+          }
+        },
+        {
+          "key": "status",
+          "type": "string",
+          "label": {
+            "en": "Status code",
+            "fr": "Code d'état"
+          }
+        },
+        {
+          "key": "status_label",
+          "type": "string",
+          "label": {
+            "en": "Status",
+            "fr": "État"
+          }
+        },
+        {
+          "key": "message",
+          "type": "string",
+          "label": {
+            "en": "TransLink message",
+            "fr": "Message TransLink"
+          }
+        },
+        {
+          "key": "normal",
+          "type": "boolean",
+          "label": {
+            "en": "Normal service",
+            "fr": "Service normal"
+          }
+        }
+      ]
+    }
+  ],
+  "widgets": [
+    {
+      "key": "departures",
+      "label": {
+        "en": "TransLink departures",
+        "fr": "Passages TransLink"
+      },
+      "description": {
+        "en": "The next departures of a watched stop.",
+        "fr": "Les prochains passages d'un arrêt surveillé."
+      },
+      "icon": "clock",
+      "settings": [
+        {
+          "key": "stop",
+          "type": "select",
+          "source": "devices",
+          "label": {
+            "en": "Stop",
+            "fr": "Arrêt"
+          },
+          "required": true
+        }
+      ]
+    },
+    {
+      "key": "line_status",
+      "label": {
+        "en": "TransLink line status",
+        "fr": "État des lignes TransLink"
+      },
+      "description": {
+        "en": "The status of the SkyTrain and SeaBus lines, with the TransLink alerts.",
+        "fr": "L'état des lignes (SkyTrain et SeaBus), avec les alertes TransLink."
+      },
+      "icon": "activity"
+    },
+    {
+      "key": "bike_station",
+      "label": {
+        "en": "Mobi station",
+        "fr": "Station Mobi"
+      },
+      "description": {
+        "en": "Bikes, e-bikes and free docks of a watched Mobi station.",
+        "fr": "Vélos, vélos électriques et places libres d'une station Mobi surveillée."
+      },
+      "icon": "map-pin",
+      "settings": [
+        {
+          "key": "station",
+          "type": "select",
+          "source": "devices",
+          "label": {
+            "en": "Mobi station",
+            "fr": "Station Mobi"
+          },
+          "required": true
+        }
+      ]
+    }
+  ]
+}
