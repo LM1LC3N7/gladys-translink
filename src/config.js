@@ -277,19 +277,35 @@ export function normalizeConfig(raw = {}) {
   return config;
 }
 
-/** Whether the operator API key is filled in. The bike share needs none. */
+/**
+ * Whether the operator API key is filled in, for an operator that asks for
+ * one. The bike share needs none.
+ */
 export function hasApiKey(config) {
-  return NETWORK.realtime !== null && config.api_key.length > 0;
+  return (
+    NETWORK.realtime !== null && NETWORK.realtime.keyless !== true && config.api_key.length > 0
+  );
 }
 
 /**
- * Where the departures come from: the operator's real-time feed with a key,
- * Transitous without one (unless the user turned that off).
+ * Whether the operator's real-time feeds can be read: with the user's key, or
+ * without any when the operator publishes them in the open (the TTC).
+ * @param {ReturnType<typeof normalizeConfig>} config
+ */
+export function hasRealtime(config) {
+  return NETWORK.realtime?.keyless === true || hasApiKey(config);
+}
+
+/**
+ * Where the departures come from: the operator's real-time feed when it can
+ * be read, Transitous otherwise (unless the user turned that off). A stop the
+ * feed leaves out (src/api/stops.js, `scheduleOnly`) reads the timetable
+ * whatever the source: see `stopSource` in src/devices/stop.js.
  * @param {ReturnType<typeof normalizeConfig>} config
  * @returns {'realtime' | 'schedule' | 'none'}
  */
 export function departuresSource(config) {
-  if (hasApiKey(config)) {
+  if (hasRealtime(config)) {
     return 'realtime';
   }
   // Without a real-time feed (RTC Québec) Transitous is the only source: it
@@ -302,7 +318,11 @@ export function departuresSource(config) {
 
 /** Whether the line status can be read: it comes from the operator's alerts. */
 export function linesEnabled(config) {
-  return config.watched.lines && hasApiKey(config) && Boolean(NETWORK.realtime?.alertsUrl);
+  return (
+    config.watched.lines &&
+    hasRealtime(config) &&
+    Boolean(NETWORK.realtime?.alertsUrl || NETWORK.realtime?.lineAlerts)
+  );
 }
 
 /**
@@ -315,6 +335,7 @@ export function linesEnabled(config) {
 export function estimatedDailyRequests(config, { stops = config.watched.stops.length } = {}) {
   const day = 86_400;
   let requests = 0;
+  // Only a key has a quota to count against.
   if (!hasApiKey(config)) {
     return 0;
   }

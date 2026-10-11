@@ -15,7 +15,8 @@ const realFetch = globalThis.fetch;
 
 /**
  * Replace `fetch` with the routes given, and return the list of the requests
- * it received (`{ url, headers }`).
+ * it received (`{ url, headers }`). A route is a body, `{ status, body }`, or a
+ * function of the URL returning one of those.
  * @param {Record<string, unknown>} routes
  */
 export function stubFetch(routes) {
@@ -27,7 +28,8 @@ export function stubFetch(routes) {
     if (!match) {
       throw new Error(`Unexpected request: ${href}`);
     }
-    const route = routes[match];
+    // A function answers from the request (NextBus: one answer per stopId).
+    const route = typeof routes[match] === 'function' ? routes[match](href) : routes[match];
     const explicit =
       route && typeof route === 'object' && 'status' in route && !(route instanceof Uint8Array);
     const status = explicit ? route.status : 200;

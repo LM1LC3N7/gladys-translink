@@ -17,7 +17,7 @@ import { DEVICE_TYPE as STOP_TYPE } from './devices/stop.js';
 import { DEVICE_TYPE as BIKE_TYPE } from './devices/bikeStation.js';
 import { DEVICE_TYPE as LINES_TYPE } from './devices/lineStatus.js';
 import { getSuggestions } from './devices/suggestions.js';
-import { departuresSource, estimatedDailyRequests, hasApiKey } from './config.js';
+import { departuresSource, estimatedDailyRequests, hasApiKey, hasRealtime } from './config.js';
 import { NETWORK } from './network.js';
 
 const BIKE_SHARE = NETWORK.bike?.name ?? '';
@@ -72,6 +72,9 @@ const NOTHING_YET = {
   },
 };
 
+// The lookups that failed for a reason the user can fix.
+const LOOKUP_PROBLEMS = new Set(['no_location', 'no_house', 'failed']);
+
 /**
  * What the status line says, and whether the integration counts as connected.
  *
@@ -99,10 +102,18 @@ export function describeStatus(gladys, config) {
     };
   }
 
+  // The line device needs no house: when it is all there is, the reason no
+  // stop was found still has to reach the user.
+  const lookup = getSuggestions().status;
+  const houseHint =
+    stops === 0 && count(discovered, BIKE_TYPE) === 0 && LOOKUP_PROBLEMS.has(lookup)
+      ? { en: ` ${NOTHING_YET[lookup].en}`, fr: ` ${NOTHING_YET[lookup].fr}` }
+      : { en: '', fr: '' };
+
   const created = new Set((gladys.devices ?? []).map((device) => device.external_id));
   const waiting = discovered.filter((device) => !created.has(device.external_id));
   const keyHint =
-    !NETWORK.realtime || hasApiKey(config) || stops === 0
+    !NETWORK.realtime || hasRealtime(config) || stops === 0
       ? { en: '', fr: '' }
       : config.watched.lines && NETWORK.lines.length > 0
         ? {
@@ -123,8 +134,8 @@ export function describeStatus(gladys, config) {
     return {
       connected: true,
       message: {
-        en: `Ready: ${what.en} to add. Open the “Discover” tab of this integration and press “Add”.${keyHint.en}`,
-        fr: `Prêt : ${what.fr} à ajouter. Ouvrez l’onglet « Découverte » de cette intégration et cliquez sur « Ajouter ».${keyHint.fr}`,
+        en: `Ready: ${what.en} to add. Open the “Discover” tab of this integration and press “Add”.${keyHint.en}${houseHint.en}`,
+        fr: `Prêt : ${what.fr} à ajouter. Ouvrez l’onglet « Découverte » de cette intégration et cliquez sur « Ajouter ».${keyHint.fr}${houseHint.fr}`,
       },
     };
   }
@@ -144,8 +155,8 @@ export function describeStatus(gladys, config) {
   return {
     connected: true,
     message: {
-      en: `Connected. Watching ${what.en}${quota.en}${keyHint.en}`,
-      fr: `Connecté. Surveille ${what.fr}${quota.fr}${keyHint.fr}`,
+      en: `Connected. Watching ${what.en}${quota.en}${keyHint.en}${houseHint.en}`,
+      fr: `Connecté. Surveille ${what.fr}${quota.fr}${keyHint.fr}${houseHint.fr}`,
     },
   };
 }

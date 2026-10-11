@@ -1,12 +1,15 @@
 // -----------------------------------------------------------------------------
-// The operator's real-time feeds (GTFS-Realtime), read with the user's key.
+// The operator's real-time feeds (GTFS-Realtime), read with the user's key —
+// or without one when the operator publishes them in the open.
 //
 // Two consequences of how they are served shape this module:
 //
 //   - the predictions come as ONE TripUpdates feed covering the whole network:
 //     it is read once per refresh interval, decoded for every watched stop at
 //     once, and each stop takes its share from that cache. Watching ten stops
-//     costs exactly what watching one does;
+//     costs exactly what watching one does. An operator answering stop by
+//     stop instead (the TTC's NextBus, `NETWORK.realtime.stopFeed`) is read
+//     once per interval and stop, translated to the same stop time updates;
 //   - a bad key, a quota and a rate limit come back as HTTP errors: they are
 //     turned into a bilingual message the user can act on
 //     (`RealtimeApiError`), rather than a bare "HTTP 403".
@@ -17,6 +20,7 @@
 import { createLogger } from '@gladysassistant/integration-sdk';
 import { request } from './http.js';
 import {
+  GtfsRealtimeDecodeError,
   decodeTripUpdates,
   STOP_SCHEDULE_RELATIONSHIP,
   TRIP_SCHEDULE_RELATIONSHIP,
@@ -24,7 +28,7 @@ import {
 import { stopPlatformId } from '../config.js';
 import { NETWORK } from '../network.js';
 import { normalizeRoute, routeLabel, stopByCode } from './stops.js';
-import { knownStop } from './transitous.js';
+import { knownStop, tidyHeadsign } from './transitous.js';
 
 const logger = createLogger({ name: 'realtime' });
 
@@ -73,7 +77,10 @@ export const MISSING_KEY_MESSAGE = {
 export function realtimeErrorFor(status, body, feed) {
   const text = String(body ?? '').toLowerCase();
   const message = `${NETWORK.operator} ${feed} feed answered HTTP ${status}`;
-  if (text.includes('quota')) {
+  // An open feed has no key to refuse nor quota to exhaust: a refusal there
+  // is the operator's side failing, which the next refresh may not see.
+  const keyed = !NETWORK.realtime?.keyless;
+  if (keyed && text.includes('quota')) {
     return new RealtimeApiError(`${message} (quota)`, {
       status,
       userMessage: {
@@ -91,7 +98,7 @@ export function realtimeErrorFor(status, body, feed) {
       },
     });
   }
-  if (status === 401 || status === 403 || text.includes('key')) {
+  if (keyed && (status === 401 || status === 403 || text.includes('key'))) {
     return new RealtimeApiError(`${message} (key refused)`, {
       status,
       userMessage: {
@@ -104,22 +111,23 @@ export function realtimeErrorFor(status, body, feed) {
 }
 
 /**
- * GET one feed with the user's key, as bytes.
+ * GET one feed with the user's key (none for an open feed).
  *
  * @param {{ api_key: string }} config
  * @param {string} url
  * @param {string} feed the feed name, for the logs and the errors
- * @returns {Promise<Uint8Array>}
+ * @param {string} accept the media type asked for
+ * @returns {Promise<Response>} an OK response
  */
-export async function readFeed(config, url, feed) {
-  if (!config.api_key) {
+async function get(config, url, feed, accept) {
+  if (!config.api_key && !NETWORK.realtime.keyless) {
     throw new RealtimeApiError('No API key configured', { userMessage: MISSING_KEY_MESSAGE });
   }
   const authorized = NETWORK.realtime.authorize(url, config.api_key);
   let response;
   try {
     response = await request(authorized.url, {
-      headers: { ...authorized.headers, Accept: 'application/x-protobuf' },
+      headers: { ...authorized.headers, Accept: accept },
     });
   } catch (err) {
     // A network error message may quote the URL, and the URL may hold the key.
@@ -131,7 +139,59 @@ export async function readFeed(config, url, feed) {
     const body = await response.text().catch(() => '');
     throw realtimeErrorFor(response.status, body, feed);
   }
+  return response;
+}
+
+/**
+ * GET one GTFS-Realtime feed, as bytes.
+ *
+ * @param {{ api_key: string }} config
+ * @param {string} url
+ * @param {string} feed the feed name, for the logs and the errors
+ * @returns {Promise<Uint8Array>}
+ */
+export async function readFeed(config, url, feed) {
+  // ETS answers 406 to a strict application/x-protobuf: its feeds are served
+  // as application/protocol-buffer.
+  const response = await get(
+    config,
+    url,
+    feed,
+    'application/x-protobuf, application/octet-stream;q=0.9, */*;q=0.8',
+  );
   return new Uint8Array(await response.arrayBuffer());
+}
+
+/**
+ * GET one text feed of the operator (the NextBus XML).
+ *
+ * @param {{ api_key: string }} config
+ * @param {string} url
+ * @param {string} feed the feed name, for the logs and the errors
+ * @returns {Promise<string>}
+ */
+export async function readText(config, url, feed) {
+  const response = await get(config, url, feed, 'text/xml');
+  return response.text();
+}
+
+/**
+ * GET one JSON feed of the operator (the TTC live alerts).
+ *
+ * @param {{ api_key: string }} config
+ * @param {string} url
+ * @param {string} feed the feed name, for the logs and the errors
+ * @returns {Promise<any>}
+ */
+export async function readJson(config, url, feed) {
+  const response = await get(config, url, feed, 'application/json');
+  try {
+    return await response.json();
+  } catch {
+    throw new RealtimeApiError(
+      `${NETWORK.operator} ${feed} feed answered something else than JSON`,
+    );
+  }
 }
 
 /**
@@ -172,6 +232,7 @@ export function setPolledStops(stops) {
 
 /** Forget the cached feed (configuration change, tests). */
 export function clearRealtimeCache() {
+  stopFeeds.clear();
   feedCache = null;
   feedInFlight = null;
   staleFeedReported = false;
@@ -189,13 +250,25 @@ function watchedStopIds(stops) {
 }
 
 /**
+ * How long the last good read of the feed stands in for a feed served cut
+ * short or empty. The Calgary open data portal publishes such a file for 30 s
+ * to a minute or more, now and then (2026-10), while it rewrites it; the times
+ * of the feed are absolute, so a reading of a few minutes still gives the
+ * right waits.
+ */
+export const STALE_FEED_MAX_MS = 5 * 60_000;
+
+/**
  * Read and decode the network feed for every watched stop.
  * @param {ReturnType<import('../config.js').normalizeConfig>} config
  * @param {{ id: string }[]} stops
  */
 async function readTripUpdates(config, stops) {
-  const buffer = await readFeed(config, NETWORK.realtime.tripUpdatesUrl, 'TripUpdates');
   const stopIds = watchedStopIds(stops);
+  const buffer = await readFeed(config, NETWORK.realtime.tripUpdatesUrl, 'TripUpdates');
+  // An empty body decodes as a feed without any trip: every board would go
+  // blank.
+  if (buffer.length === 0) throw new GtfsRealtimeDecodeError('empty feed');
   const decoded = decodeTripUpdates(buffer, stopIds);
   logger.debug(
     `TripUpdates: ${buffer.length} bytes, ${decoded.stopTimes.length} stop time(s) ` +
@@ -232,6 +305,19 @@ export async function getTripUpdates(
       feedCache = { at: now, key, ...decoded };
       return feedCache;
     })
+    .catch((err) => {
+      const lastGood = feedCache?.key === key ? feedCache : null;
+      if (
+        err instanceof GtfsRealtimeDecodeError &&
+        lastGood &&
+        now - lastGood.at < STALE_FEED_MAX_MS
+      ) {
+        // The cache keeps its age: the next poll reads the feed again.
+        logger.debug(`TripUpdates: ${err.message}, the last good read stands in`);
+        return lastGood;
+      }
+      throw err;
+    })
     .finally(() => {
       if (feedInFlight?.promise === promise) {
         feedInFlight = null;
@@ -249,7 +335,8 @@ export async function getTripUpdates(
  * stop_ids, from a trip that is not cancelled, which the vehicle does not
  * skip, and which carries a time. The route comes from the trip's route_id
  * (the stop table names it); a feed that omits it is completed from the trips
- * Transitous saw at the stop, which also give the direction.
+ * Transitous saw at the stop, which also give the direction when the feed
+ * does not.
  *
  * @param {{ stopTimes: object[] }} feed
  * @param {{ id: string, routes: string[] }} stop
@@ -260,7 +347,14 @@ export async function getTripUpdates(
  */
 export function departuresFromFeed(feed, stop, nowSeconds) {
   const ids = new Set(stopByCode(stop.id)?.ids ?? []);
-  const trips = knownStop(stop.id)?.trips;
+  const known = knownStop(stop.id);
+  const trips = known?.trips;
+  // A trip Transitous has not listed (later than the departures it gave)
+  // still has its direction when its route goes one way only at the stop.
+  const onlyHeadsign = (route) => {
+    const headsigns = known?.routes?.find((entry) => entry.route === route)?.headsigns ?? [];
+    return headsigns.length === 1 ? headsigns[0] : '';
+  };
   const departures = [];
   for (const stopTime of feed.stopTimes) {
     if (!ids.has(stopTime.stopId)) continue;
@@ -276,9 +370,21 @@ export function departuresFromFeed(feed, stop, nowSeconds) {
       logger.warn('The real-time feed names no route for some trips: they show without a route.');
     }
     if (stop.routes.length > 0 && !stop.routes.includes(normalizeRoute(route))) continue;
+    // A trip on a detour may come twice (ETS): as itself, and as the trip
+    // modified, without a route. One departure, the one naming its route.
+    const twin = departures.find(
+      (departure) => stopTime.tripId && departure.tripId === stopTime.tripId,
+    );
+    if (twin) {
+      if (!twin.route && route) twin.route = route;
+      continue;
+    }
     departures.push({
       route,
-      headsign: seen?.headsign ?? '',
+      // A feed naming the direction (NextBus) is the freshest word on it.
+      headsign: stopTime.headsign
+        ? tidyHeadsign(stopTime.headsign, route)
+        : seen?.headsign || onlyHeadsign(route),
       tripId: stopTime.tripId,
       directionId: stopTime.directionId,
       time: event.time,
@@ -291,6 +397,40 @@ export function departuresFromFeed(feed, stop, nowSeconds) {
 }
 
 /**
+ * The predictions of one stop, for an operator read stop by stop
+ * (`NETWORK.realtime.stopFeed`, the TTC's NextBus): at most once per refresh
+ * interval and stop, and once for concurrent askers (the poll and a widget).
+ * @type {Map<string, { at: number, feed?: object, promise?: Promise<object> }>}
+ */
+const stopFeeds = new Map();
+
+/**
+ * @param {ReturnType<import('../config.js').normalizeConfig>} config
+ * @param {{ id: string }} stop
+ * @param {{ now?: number }} [options]
+ * @returns {Promise<{ stopTimes: object[] }>}
+ */
+export async function getStopFeed(config, stop, { now = Date.now() } = {}) {
+  const { stopFeed } = NETWORK.realtime;
+  const maxAgeMs = config.departures_poll_frequency * 1000 * 0.9;
+  const cached = stopFeeds.get(stop.id);
+  if (cached?.feed && now - cached.at < maxAgeMs) return cached.feed;
+  if (cached?.promise) return cached.promise;
+  const promise = readText(config, stopFeed.url(stop.id), 'Predictions')
+    .then((text) => {
+      const feed = stopFeed.parse(text, stop.id);
+      stopFeeds.set(stop.id, { at: now, feed });
+      return feed;
+    })
+    .catch((err) => {
+      stopFeeds.delete(stop.id);
+      throw err;
+    });
+  stopFeeds.set(stop.id, { at: now, promise });
+  return promise;
+}
+
+/**
  * The upcoming departures of one watched stop (see `departuresFromFeed`).
  *
  * @param {ReturnType<import('../config.js').normalizeConfig>} config
@@ -298,8 +438,12 @@ export function departuresFromFeed(feed, stop, nowSeconds) {
  * @param {{ now?: number, stops?: { id: string }[] }} [options]
  */
 export async function fetchDepartures(config, stop, { now = Date.now(), stops } = {}) {
-  const watched = stops ?? [...config.watched.stops, ...polledStops, stop];
-  const feed = await getTripUpdates(config, { now, stops: watched });
+  const feed = NETWORK.realtime.stopFeed
+    ? await getStopFeed(config, stop, { now })
+    : await getTripUpdates(config, {
+        now,
+        stops: stops ?? [...config.watched.stops, ...polledStops, stop],
+      });
   const nowSeconds = Math.floor(now / 1000);
   if (feed.timestamp && nowSeconds - feed.timestamp > STALE_FEED_SECONDS && !staleFeedReported) {
     staleFeedReported = true;

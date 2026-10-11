@@ -10,6 +10,19 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+### Fixed
+
+- A real-time feed served cut short or empty for a moment no longer empties
+  the boards: the last good read stands in for up to 5 minutes.
+- A trip on a detour, which the real-time feed lists twice, shows once on
+  the board, with its route.
+- The real-time requests accept any content type: some servers refuse a
+  strict protobuf one.
+- A real-time departure that Transitous has not listed yet gets the
+  direction of its route when the route has only one at that stop.
+- The status line says why no stop was found (no house location, location
+  refused) even when the line status is the only device.
+
 ## [0.1.0] - 2026-10-11
 
 ### Added

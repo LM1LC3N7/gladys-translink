@@ -77,7 +77,8 @@ function entryRoute(entry) {
 /**
  * A headsign without the route it repeats: TransLink writes "3 Main/To Marine
  * Dr Station" and "Canada Line To YVR-Airport", which a board already showing
- * the route reads as "Main/To Marine Dr Station" and "YVR-Airport".
+ * the route reads as "Main/To Marine Dr Station" and "YVR-Airport"; the TTC
+ * "Line 1 (Yonge-University) towards Finch Station", read as "Finch Station".
  * @param {string} headsign
  * @param {string} route
  */
@@ -90,6 +91,19 @@ export function tidyHeadsign(headsign, route) {
   // OC Transpo writes both languages, "Hospital ~ Hôpital": the "~" would
   // read as the scheduled-time mark of the boards.
   value = value.replace(/\s+~\s+/g, ' / ');
+  // The TTC writes the direction, the route and its name before the
+  // destination: "East - 114 Queens Quay East towards Carlaw".
+  const towards = /\btowards\s+(.+)$/i.exec(value);
+  if (towards) value = towards[1];
+  // Calgary Transit writes its headsigns in capitals, "RICHMOND RD SW": they
+  // read better as "Richmond Rd SW" (the city quadrants stay in capitals).
+  // Opt-in: elsewhere a headsign in capitals is an acronym, "UBC".
+  if (NETWORK.titleCaseHeadsigns && !/[a-z]/.test(value)) {
+    value = value
+      .toLowerCase()
+      .replace(/(^|[\s/(-])\p{L}/gu, (letter) => letter.toUpperCase())
+      .replace(/\b(Nw|Ne|Sw|Se)\b/g, (quadrant) => quadrant.toUpperCase());
+  }
   return value.replace(/^to\s+/i, '').trim() || String(headsign ?? '').trim();
 }
 

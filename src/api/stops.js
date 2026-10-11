@@ -18,8 +18,10 @@ import { readFileSync } from 'node:fs';
 const DATA_DIR = new URL('../../gtfs/', import.meta.url);
 
 /**
+ * `scheduleOnly`: the operator's real-time feed leaves the stop out (the TTC
+ * publishes no prediction for its subway): its departures are the timetable.
  * @typedef {{ code: string, name: string, lat: number, lon: number,
- *   ids: string[], query: string[] }} Stop
+ *   ids: string[], query: string[], scheduleOnly: boolean }} Stop
  */
 
 /** @type {{ stops: Stop[], byCode: Map<string, Stop>, generated: string } | null} */
@@ -31,13 +33,14 @@ let routes = null;
 function loadStops() {
   if (!table) {
     const raw = JSON.parse(readFileSync(new URL('stops.json', DATA_DIR), 'utf8'));
-    const stops = raw.stops.map(([code, name, lat, lon, ids, query]) => ({
+    const stops = raw.stops.map(([code, name, lat, lon, ids, query, scheduleOnly]) => ({
       code,
       name,
       lat,
       lon,
       ids,
       query,
+      scheduleOnly: scheduleOnly === 1,
     }));
     table = {
       stops,

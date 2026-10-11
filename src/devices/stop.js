@@ -117,8 +117,8 @@ export function deviceName(stop, language) {
 }
 
 const NO_SOURCE_MESSAGE = {
-  en: `No ${NETWORK.realtime?.keyLabel.en ?? 'API key'}, and the departures without a key are turned off: add a key in the configuration.`,
-  fr: `Aucune ${NETWORK.realtime?.keyLabel.fr ?? 'clé d’API'}, et les passages sans clé sont désactivés : ajoutez une clé dans la configuration.`,
+  en: `No ${NETWORK.realtime?.keyLabel?.en ?? 'API key'}, and the departures without a key are turned off: add a key in the configuration.`,
+  fr: `Aucune ${NETWORK.realtime?.keyLabel?.fr ?? 'clé d’API'}, et les passages sans clé sont désactivés : ajoutez une clé dans la configuration.`,
 };
 
 const UNKNOWN_STOP_MESSAGE = (code) => ({
@@ -127,13 +127,27 @@ const UNKNOWN_STOP_MESSAGE = (code) => ({
 });
 
 /**
+ * Where the departures of one stop come from: the configured source, except
+ * that a stop the real-time feed leaves out (the TTC subway) reads the
+ * timetable — the feed would only ever say "no departure" there.
+ * @param {ReturnType<import('../config.js').normalizeConfig>} config
+ * @param {{ id: string }} stop
+ * @returns {'realtime' | 'schedule' | 'none'}
+ */
+export function stopSource(config, stop) {
+  const source = departuresSource(config);
+  return source === 'realtime' && stopByCode(stop.id)?.scheduleOnly ? 'schedule' : source;
+}
+
+/**
  * The refresh interval of a stop, in seconds: the configured one, but never
  * faster than every two minutes on the timetable (Transitous asks to stay
  * light, and a timetable does not move).
  * @param {ReturnType<import('../config.js').normalizeConfig>} config
+ * @param {{ id: string }} stop
  */
-export function stopPollSeconds(config) {
-  return departuresSource(config) === 'schedule'
+export function stopPollSeconds(config, stop) {
+  return stopSource(config, stop) === 'schedule'
     ? Math.max(config.departures_poll_frequency, MIN_SCHEDULE_POLL_FREQUENCY)
     : config.departures_poll_frequency;
 }
@@ -159,7 +173,7 @@ export function createStopBlueprint(stop) {
     },
 
     pollIntervalMs(config) {
-      return stopPollSeconds(config) * 1000;
+      return stopPollSeconds(config, stop) * 1000;
     },
 
     buildDevice(gladys, config) {
@@ -211,7 +225,7 @@ export function createStopBlueprint(stop) {
         // Gladys calls onPoll at this interval, in milliseconds, and only
         // accepts the values its own scheduler knows: the configured refresh
         // interval is honored by pollSchedule.js, not by this field.
-        poll_frequency: gladysPollFrequency(stopPollSeconds(config)),
+        poll_frequency: gladysPollFrequency(stopPollSeconds(config, stop)),
         // `should_poll` is what actually schedules the device: the core only
         // inserts it in its poll scheduler when the flag is set at creation.
         should_poll: true,
@@ -236,7 +250,7 @@ export function createStopBlueprint(stop) {
           }),
         );
       }
-      switch (departuresSource(config)) {
+      switch (stopSource(config, stop)) {
         case 'realtime':
           return fetchDepartures(config, stop);
         case 'schedule':

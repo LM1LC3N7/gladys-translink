@@ -292,8 +292,8 @@ export function linesBlueprint(config) {
   }
   if (!linesEnabled(config)) {
     throw new DeviceSelectionError({
-      en: `The line status needs a ${NETWORK.realtime?.keyLabel.en ?? 'key'}: see the integration documentation, it takes 5 minutes.`,
-      fr: `L’état des lignes demande une ${NETWORK.realtime?.keyLabel.fr ?? 'clé'} : voir la documentation de l’intégration, c’est 5 minutes.`,
+      en: `The line status needs a ${NETWORK.realtime?.keyLabel?.en ?? 'key'}: see the integration documentation, it takes 5 minutes.`,
+      fr: `L’état des lignes demande une ${NETWORK.realtime?.keyLabel?.fr ?? 'clé'} : voir la documentation de l’intégration, c’est 5 minutes.`,
     });
   }
   return createLineStatusBlueprint();
@@ -425,10 +425,10 @@ const RAW_ACTIONS = {
 };
 
 // The buttons of the features this network has: no key test without a
-// real-time feed, no station search without a bike share.
+// real-time feed or with an open one, no station search without a bike share.
 const AVAILABLE_ACTIONS = Object.entries(RAW_ACTIONS).filter(
   ([key]) =>
-    (key !== 'test_api_key' || NETWORK.realtime) &&
+    (key !== 'test_api_key' || (NETWORK.realtime && !NETWORK.realtime.keyless)) &&
     (key !== 'search_bike_stations' || NETWORK.bike),
 );
 

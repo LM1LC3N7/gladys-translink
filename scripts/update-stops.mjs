@@ -130,12 +130,17 @@ export function routeLabel(route) {
  * the code; `query` the ids to ask Transitous (the station when there is
  * one: Transitous answers for a station with the departures of its platforms).
  *
+ * A 7th element, 1, marks a code whose every stop_id is in `scheduleOnly`:
+ * the real-time feed leaves it out, its departures are the timetable.
+ *
  * @param {Record<string, string>[]} rows of stops.txt
  * @param {(row: Record<string, string>) => string} stopName
- * @returns {[string, string, number, number, string[], string[]][]}
- *   [code, name, lat, lon, ids, query]
+ * @param {Set<string>} [scheduleOnly] stop_ids the real-time feed leaves out
+ * @returns {([string, string, number, number, string[], string[]] |
+ *   [string, string, number, number, string[], string[], 1])[]}
+ *   [code, name, lat, lon, ids, query, scheduleOnly?]
  */
-export function buildStops(rows, stopName) {
+export function buildStops(rows, stopName, scheduleOnly = new Set()) {
   const byCode = new Map();
   const children = new Map();
   for (const row of rows) {
@@ -166,16 +171,66 @@ export function buildStops(rows, stopName) {
       : parents.size === 1 && group.length > 1
         ? [...parents]
         : group.map((row) => row.stop_id);
-    stops.push([
+    const entry = [
       code,
       stopName(main),
       Number(Number(main.stop_lat).toFixed(6)),
       Number(Number(main.stop_lon).toFixed(6)),
       [...ids],
       query,
-    ]);
+    ];
+    if ([...ids].every((id) => scheduleOnly.has(id))) entry.push(1);
+    stops.push(entry);
   }
   return stops.sort((a, b) => a[0].localeCompare(b[0], 'en', { numeric: true }));
+}
+
+/**
+ * The route table: route_id → label, plus the short name → label when no
+ * route_id takes it. Calgary Transit versions its route_ids ("201-20786",
+ * "201-20801" are the Red Line of two service periods) while its real-time
+ * feeds name the route by its short name ("201").
+ * @param {Record<string, string>[]} rows routes.txt
+ * @returns {Record<string, string>}
+ */
+export function buildRoutes(rows) {
+  const routes = new Map(rows.map((route) => [route.route_id, routeLabel(route)]));
+  for (const route of rows) {
+    const short = route.route_short_name ?? '';
+    if (short && !routes.has(short)) routes.set(short, routeLabel(route));
+  }
+  return Object.fromEntries(
+    [...routes].sort(([a], [b]) => a.localeCompare(b, 'en', { numeric: true })),
+  );
+}
+
+/**
+ * The stop_ids served by the trips of some routes. stop_times.txt is the big
+ * file of a GTFS (200 MB at the TTC): it is scanned line by line rather than
+ * parsed into objects, which would take gigabytes. Its fields are never
+ * quoted in practice; a quoted line would only be missed, not misread.
+ *
+ * @param {string} trips the text of trips.txt
+ * @param {string} stopTimes the text of stop_times.txt
+ * @param {string[]} routeIds
+ * @returns {Set<string>}
+ */
+export function stopsServedOnlyBy(trips, stopTimes, routeIds) {
+  const routes = new Set(routeIds);
+  const tripRoute = new Map(parseCsv(trips).map((trip) => [trip.trip_id, trip.route_id]));
+  const lines = stopTimes.replace(/^\uFEFF/, '').split(/\r?\n/);
+  const header = lines[0].split(',').map((key) => key.trim());
+  const tripColumn = header.indexOf('trip_id');
+  const stopColumn = header.indexOf('stop_id');
+  const inside = new Set();
+  const outside = new Set();
+  for (let i = 1; i < lines.length; i += 1) {
+    if (!lines[i]) continue;
+    const fields = lines[i].split(',');
+    const stop = fields[stopColumn];
+    (routes.has(tripRoute.get(fields[tripColumn])) ? inside : outside).add(stop);
+  }
+  return new Set([...inside].filter((stop) => !outside.has(stop)));
 }
 
 async function main() {
@@ -191,12 +246,18 @@ async function main() {
   };
 
   const generated = new Date().toISOString().slice(0, 10);
-  const stops = buildStops(read('stops.txt'), stopName);
-  const routes = Object.fromEntries(
-    read('routes.txt')
-      .map((route) => [route.route_id, routeLabel(route)])
-      .sort(([a], [b]) => a.localeCompare(b, 'en', { numeric: true })),
-  );
+  const scheduleOnly = NETWORK.gtfs.scheduleOnlyRoutes
+    ? stopsServedOnlyBy(
+        entries.get('trips.txt')().toString('utf8'),
+        entries.get('stop_times.txt')().toString('utf8'),
+        NETWORK.gtfs.scheduleOnlyRoutes,
+      )
+    : new Set();
+  // A regional feed (ETS) also lists the stops of its neighbours: only the
+  // operator's own are kept.
+  const keepStop = NETWORK.gtfs.keepStop ?? (() => true);
+  const stops = buildStops(read('stops.txt').filter(keepStop), stopName, scheduleOnly);
+  const routes = buildRoutes(read('routes.txt'));
 
   mkdirSync('gtfs', { recursive: true });
   // One stop per line: the diff of a regeneration then reads stop by stop.
@@ -210,7 +271,10 @@ async function main() {
     'gtfs/routes.json',
     `${JSON.stringify({ generated, source: url, routes }, null, 1)}\n`,
   );
-  console.log(`${stops.length} stop codes, ${Object.keys(routes).length} routes written to gtfs/`);
+  console.log(
+    `${stops.length} stop codes (${stops.filter((stop) => stop[6]).length} timetable only), ` +
+      `${Object.keys(routes).length} routes written to gtfs/`,
+  );
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

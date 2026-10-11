@@ -15,7 +15,9 @@ import {
   RealtimeApiError,
   redact,
   setPolledStops,
+  STALE_FEED_MAX_MS,
 } from '../src/api/realtime.js';
+import { GtfsRealtimeDecodeError } from '../src/api/gtfsRealtime.js';
 import { NETWORK } from '../src/network.js';
 import { encodeFeed } from './helpers/gtfsRealtimeEncoder.js';
 import { restoreFetch, stubFetch } from './helpers/stubFetch.js';
@@ -118,6 +120,8 @@ test('one read of the feed serves every stop, with the key in the query string',
   assert.equal(calls.length, 1);
   assert.equal(new URL(calls[0].url).searchParams.get('apikey'), 'k3y');
   assert.match(calls[0].headers['User-Agent'], /^gladys-translink\//);
+  // Some servers refuse a strict protobuf Accept header (ETS: HTTP 406).
+  assert.match(calls[0].headers.Accept, /\*\/\*/);
 
   // A new interval reads again; so does a forced fresh read.
   await fetchDepartures(config, config.watched.stops[0], { now: NOW_MS + 60_000 });
@@ -188,4 +192,56 @@ test('a network error never logs the key the URL carries', async () => {
   );
   assert.equal(redact('a k3y b k3y', 'k3y'), 'a *** b ***');
   assert.equal(redact('text', ''), 'text');
+});
+
+test('a feed served cut short or empty: the last good read stands in a while', async () => {
+  const whole = feed();
+  let served = whole;
+  stubFetch({ [FEED]: () => served });
+  const [stop] = config.watched.stops;
+  assert.equal((await fetchDepartures(config, stop, { now: NOW_MS })).length, 2);
+
+  // A feed served cut short, then empty, while it is rewritten.
+  served = { status: 200, body: whole.subarray(0, 40) };
+  assert.equal((await fetchDepartures(config, stop, { now: NOW_MS + 60_000 })).length, 2);
+  served = new Uint8Array(0);
+  assert.equal((await fetchDepartures(config, stop, { now: NOW_MS + 120_000 })).length, 2);
+
+  // Too old to stand in: the failure shows.
+  await assert.rejects(
+    fetchDepartures(config, stop, { now: NOW_MS + STALE_FEED_MAX_MS + 1000 }),
+    GtfsRealtimeDecodeError,
+  );
+  // Without a good read before, it shows at once.
+  clearRealtimeCache();
+  await assert.rejects(fetchDepartures(config, stop, { now: NOW_MS }), GtfsRealtimeDecodeError);
+});
+
+test('a trip on a detour, listed twice, is one departure with its route', async () => {
+  stubFetch({
+    [FEED]: encodeFeed({
+      timestamp: NOW,
+      entities: [
+        {
+          // The detour first (trip modifications): named by the trip it
+          // modifies, without a route.
+          tripUpdate: {
+            trip: { affectedTripId: 'T9' },
+            stopTimeUpdates: [{ stopId: '40', arrival: { time: NOW + 300 } }],
+          },
+        },
+        {
+          tripUpdate: {
+            trip: { tripId: 'T9', routeId: '6637' },
+            stopTimeUpdates: [{ stopId: '40', arrival: { time: NOW + 300 } }],
+          },
+        },
+      ],
+    }),
+  });
+  const board = await fetchDepartures(config, config.watched.stops[0], { now: NOW_MS });
+  assert.deepEqual(
+    board.map((departure) => [departure.tripId, departure.route]),
+    [['T9', '50']],
+  );
 });

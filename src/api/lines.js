@@ -1,6 +1,7 @@
 // -----------------------------------------------------------------------------
 // The status of the rapid transit lines, from the operator's GTFS-Realtime
-// service alerts (read with the user's key).
+// service alerts (read with the user's key), or from its own alerts API
+// translated to the same shape (`NETWORK.realtime.lineAlerts`).
 //
 // A service alerts feed lists what is wrong, not what is fine: a line no
 // active alert names runs normally. An alert counts for a line when one of its
@@ -15,7 +16,7 @@
 // -----------------------------------------------------------------------------
 
 import { createLogger } from '@gladysassistant/integration-sdk';
-import { readFeed } from './realtime.js';
+import { readFeed, readJson } from './realtime.js';
 import { ALERT_EFFECT, ALERT_SEVERITY, decodeAlerts } from './gtfsRealtime.js';
 import { NETWORK } from '../network.js';
 
@@ -146,8 +147,18 @@ export function parseAlerts(feed, { language, now = Date.now() }) {
  * @param {{ now?: number }} [options]
  */
 export async function fetchLineStatus(config, { now = Date.now() } = {}) {
-  const buffer = await readFeed(config, NETWORK.realtime.alertsUrl, 'Alerts');
-  const status = parseAlerts(decodeAlerts(buffer), { language: config.language, now });
+  // An operator whose GTFS-Realtime alerts cannot tell the lines apart (the
+  // TTC) has its own alerts read and translated by src/network.js.
+  const { lineAlerts } = NETWORK.realtime;
+  const feed = lineAlerts
+    ? lineAlerts.parse(await readJson(config, lineAlerts.url, 'Alerts'))
+    : decodeAlerts(await readFeed(config, NETWORK.realtime.alertsUrl, 'Alerts'));
+  // Calgary Transit writes the effect and the title of its alerts in HTML.
+  const { tidyAlerts } = NETWORK.realtime;
+  const status = parseAlerts(tidyAlerts ? tidyAlerts(feed) : feed, {
+    language: config.language,
+    now,
+  });
   logger.debug(`Lines: ${status.lines.map((line) => `${line.id}=${line.status}`).join(', ')}`);
   return status;
 }

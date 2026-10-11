@@ -167,12 +167,15 @@ export function departuresContent(name, departures) {
     components.push({
       type: 'text',
       variant: WIDGET_TEXT_VARIANTS.CAPTION,
-      text: NETWORK.realtime
-        ? {
-            en: `~ scheduled time. Add a ${NETWORK.operator} key for real time.`,
-            fr: `~ horaire prévu. Ajoutez une clé ${NETWORK.operator} pour le temps réel.`,
-          }
-        : { en: '~ scheduled time.', fr: '~ horaire prévu.' },
+      // An open feed needs no key: its scheduled times are the stops it
+      // leaves out (the TTC subway), which no key would change.
+      text:
+        NETWORK.realtime && !NETWORK.realtime.keyless
+          ? {
+              en: `~ scheduled time. Add a ${NETWORK.operator} key for real time.`,
+              fr: `~ horaire prévu. Ajoutez une clé ${NETWORK.operator} pour le temps réel.`,
+            }
+          : { en: '~ scheduled time.', fr: '~ horaire prévu.' },
     });
   }
   return { ttl_seconds: TTL_SECONDS[WIDGET_KEYS.DEPARTURES], components };
