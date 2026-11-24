@@ -1,6 +1,6 @@
 {
   "name": "gladys-translink",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "description": "Gladys Assistant external integration for TransLink, Metro Vancouver: next departures, SkyTrain line status and Mobi bike-share stations.",
   "type": "module",
